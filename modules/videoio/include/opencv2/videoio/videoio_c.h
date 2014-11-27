@@ -186,6 +186,9 @@ enum
     CV_CAP_PROP_SUPPORTED_PREVIEW_SIZES_STRING=1025, // readonly, tricky property, returns cpnst char* indeed
     CV_CAP_PROP_PREVIEW_FORMAT=1026, // readonly, tricky property, returns cpnst char* indeed
 
+    // Camera class properties
+    CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE = 2048,
+
     // OpenNI map generators
     CV_CAP_OPENNI_DEPTH_GENERATOR = 1 << 31,
     CV_CAP_OPENNI_IMAGE_GENERATOR = 1 << 30,

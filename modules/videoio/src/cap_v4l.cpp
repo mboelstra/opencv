@@ -295,7 +295,8 @@ enum PALETTE_TYPE {
   PALETTE_SN9C10X,
   PALETTE_MJPEG,
   PALETTE_SGBRG,
-  PALETTE_RGB24
+  PALETTE_RGB24,
+  PALETTE_GRAY
 };
 
 typedef struct CvCaptureCAM_V4L
@@ -336,6 +337,7 @@ typedef struct CvCaptureCAM_V4L
    int v4l2_hue, v4l2_hue_min, v4l2_hue_max;
    int v4l2_gain, v4l2_gain_min, v4l2_gain_max;
    int v4l2_exposure, v4l2_exposure_min, v4l2_exposure_max;
+   int v4l2_exposure_absolute, v4l2_exposure_absolute_min, v4l2_exposure_absolute_max;
 
 #endif /* HAVE_CAMV4L2 */
 
@@ -593,7 +595,11 @@ static int autosetup_capture_mode_v4l2(CvCaptureCAM_V4L* capture)
   {
     capture->palette = PALETTE_RGB24;
   }
-      else
+  else if (try_palette_v4l2(capture, V4L2_PIX_FMT_GREY) == 0)
+  {
+    capture->palette = PALETTE_GRAY;
+  }
+  else
   {
     fprintf(stderr, "VIDEOIO ERROR: V4L2: Pixel format of incoming image is unsupported by OpenCV\n");
     icvCloseCAM_V4L(capture);
@@ -788,6 +794,39 @@ static void v4l2_scan_controls(CvCaptureCAM_V4L* capture)
 
   }
 
+  for (ctrl_id = V4L2_CID_CAMERA_CLASS_BASE;
+       ctrl_id < (V4L2_CID_AUTO_FOCUS_RANGE+1);
+       ctrl_id++)
+  {
+    /* set the id we will query now */
+    CLEAR (capture->queryctrl);
+    capture->queryctrl.id = ctrl_id;
+
+    if (0 == ioctl (capture->deviceHandle, VIDIOC_QUERYCTRL,
+                     &capture->queryctrl))
+    {
+
+      if (capture->queryctrl.flags & V4L2_CTRL_FLAG_DISABLED)
+        continue;
+
+      if (capture->queryctrl.id == V4L2_CID_EXPOSURE_ABSOLUTE)
+      {
+        capture->v4l2_exposure_absolute = 1;
+        capture->v4l2_exposure_absolute_min = capture->queryctrl.minimum;
+        capture->v4l2_exposure_absolute_max = capture->queryctrl.maximum;
+      }
+
+    } else {
+
+      if (errno == EINVAL) {
+        continue;
+      }
+
+      perror ("VIDIOC_QUERYCTRL");
+
+    }
+  }
+
 }
 
 static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
@@ -811,6 +850,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
    capture->v4l2_hue = 0;
    capture->v4l2_gain = 0;
    capture->v4l2_exposure = 0;
+   capture->v4l2_exposure_absolute = 0;
 
    capture->v4l2_brightness_min = 0;
    capture->v4l2_contrast_min = 0;
@@ -818,6 +858,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
    capture->v4l2_hue_min = 0;
    capture->v4l2_gain_min = 0;
    capture->v4l2_exposure_min = 0;
+   capture->v4l2_exposure_absolute_min = 0;
 
    capture->v4l2_brightness_max = 0;
    capture->v4l2_contrast_max = 0;
@@ -825,6 +866,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
    capture->v4l2_hue_max = 0;
    capture->v4l2_gain_max = 0;
    capture->v4l2_exposure_max = 0;
+   capture->v4l2_exposure_absolute_max = 0;
 
    capture->timestamp.tv_sec = 0;
    capture->timestamp.tv_usec = 0;
@@ -975,7 +1017,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
    cvInitImageHeader( &capture->frame,
                       cvSize( capture->form.fmt.pix.width,
                               capture->form.fmt.pix.height ),
-                      IPL_DEPTH_8U, 3, IPL_ORIGIN_TL, 4 );
+                      IPL_DEPTH_8U, capture->palette == PALETTE_GRAY ? 1 : 3, IPL_ORIGIN_TL, 4 );
    /* Allocate space for RGBA data */
    capture->frame.imageData = (char *)cvAlloc(capture->frame.imageSize);
 
@@ -2168,6 +2210,7 @@ static IplImage* icvRetrieveFrameCAM_V4L( CvCaptureCAM_V4L* capture, int) {
     switch (capture->palette)
     {
     case PALETTE_BGR24:
+    case PALETTE_GRAY:
         memcpy((char *)capture->frame.imageData,
                (char *)capture->buffers[capture->bufferIndex].start,
                capture->frame.imageSize);
@@ -2347,6 +2390,9 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
       case CV_CAP_PROP_EXPOSURE:
           capture->control.id = V4L2_CID_EXPOSURE;
           break;
+      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+          capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+          break;
       default:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L2: getting property #%d is not supported\n",
@@ -2376,6 +2422,9 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
               break;
           case CV_CAP_PROP_EXPOSURE:
               fprintf (stderr, "Exposure");
+              break;
+          case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+              fprintf (stderr, "Exposure Absolute");
               break;
           }
           fprintf (stderr, " is not supported by your device\n");
@@ -2410,6 +2459,10 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
           v4l2_min = capture->v4l2_exposure_min;
           v4l2_max = capture->v4l2_exposure_max;
           break;
+      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+          v4l2_min = capture->v4l2_exposure_absolute_min;
+          v4l2_max = capture->v4l2_exposure_absolute_max;
+        break;
       }
 
       /* all was OK, so convert to 0.0 - 1.0 range, and return the value */
@@ -2461,6 +2514,11 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
+        return -1;
+        break;
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+        fprintf(stderr,
+                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
         return -1;
         break;
     default:
@@ -2632,6 +2690,9 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
         break;
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+        capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        break;
     default:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L2: setting property #%d is not supported\n",
@@ -2673,6 +2734,10 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
         v4l2_min = capture->v4l2_exposure_min;
         v4l2_max = capture->v4l2_exposure_max;
         break;
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+        v4l2_min = capture->v4l2_exposure_absolute_min;
+        v4l2_max = capture->v4l2_exposure_absolute_max;
+        break;
     }
 
     /* initialisations */
@@ -2698,6 +2763,9 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
         break;
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
+        break;
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+        capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
         break;
     default:
         fprintf(stderr,
@@ -2748,6 +2816,10 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
+        return -1;
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+        fprintf(stderr,
+                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
         return -1;
     default:
         fprintf(stderr,
@@ -2805,6 +2877,7 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_HUE:
     case CV_CAP_PROP_GAIN:
     case CV_CAP_PROP_EXPOSURE:
+    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
         retval = icvSetControl(capture, property_id, value);
         break;
     default:

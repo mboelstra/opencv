@@ -130,6 +130,12 @@ enum { CAP_PROP_POS_MSEC       =0,
      };
 
 
+// Camera class properties
+enum {
+       CAP_PROP_CAM_EXPOSURE_ABSOLUTE = 2048
+};
+
+
 // DC1394 only
 // modes of the controlling registers (can be: auto, manual, auto single push, absolute Latter allowed with any other mode)
 // every feature can have only one mode turned on at a time
