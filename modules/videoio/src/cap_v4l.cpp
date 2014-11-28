@@ -2590,7 +2590,7 @@ static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h) {
     memset (&setfps, 0, sizeof(struct v4l2_streamparm));
     setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     setfps.parm.capture.timeperframe.numerator = 1;
-    setfps.parm.capture.timeperframe.denominator = 30;
+    setfps.parm.capture.timeperframe.denominator = 60;
     ioctl (capture->deviceHandle, VIDIOC_S_PARM, &setfps);
 
     /* we need to re-initialize some things, like buffers, because the size has
@@ -2869,6 +2869,16 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
         if(width !=0 && height != 0) {
             retval = icvSetVideoSize( capture, width, height);
             width = height = 0;
+        }
+        break;
+    case CV_CAP_PROP_FPS:
+        {
+            struct v4l2_streamparm setfps;
+            memset (&setfps, 0, sizeof(struct v4l2_streamparm));
+            setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            setfps.parm.capture.timeperframe.numerator = 1;
+            setfps.parm.capture.timeperframe.denominator = value;
+            ioctl (capture->deviceHandle, VIDIOC_S_PARM, &setfps);
         }
         break;
     case CV_CAP_PROP_BRIGHTNESS:
