@@ -122,7 +122,8 @@ enum { CAP_PROP_POS_MSEC       =0,
 
 // Camera class properties
 enum {
-       CAP_PROP_CAM_EXPOSURE_ABSOLUTE = 2048
+       CAP_PROP_CAM_EXPOSURE_ABSOLUTE = 2048,
+       CAP_PROP_CAM_PRIVACY           = 2049
 };
 
 

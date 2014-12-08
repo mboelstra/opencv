@@ -337,6 +337,7 @@ typedef struct CvCaptureCAM_V4L
    int v4l2_hue, v4l2_hue_min, v4l2_hue_max;
    int v4l2_gain, v4l2_gain_min, v4l2_gain_max;
    int v4l2_exposure, v4l2_exposure_min, v4l2_exposure_max;
+
    int v4l2_exposure_absolute, v4l2_exposure_absolute_min, v4l2_exposure_absolute_max;
 
 #endif /* HAVE_CAMV4L2 */
@@ -2390,8 +2391,11 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
       case CV_CAP_PROP_EXPOSURE:
           capture->control.id = V4L2_CID_EXPOSURE;
           break;
-      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+      case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
           capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+          break;
+      case CV_CAP_PROP_CAM_PRIVACY:
+          capture->control.id = V4L2_CID_PRIVACY;
           break;
       default:
         fprintf(stderr,
@@ -2423,8 +2427,11 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
           case CV_CAP_PROP_EXPOSURE:
               fprintf (stderr, "Exposure");
               break;
-          case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+          case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
               fprintf (stderr, "Exposure Absolute");
+              break;
+          case CV_CAP_PROP_CAM_PRIVACY:
+              fprintf (stderr, "Privacy");
               break;
           }
           fprintf (stderr, " is not supported by your device\n");
@@ -2459,10 +2466,14 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
           v4l2_min = capture->v4l2_exposure_min;
           v4l2_max = capture->v4l2_exposure_max;
           break;
-      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+      case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
           v4l2_min = capture->v4l2_exposure_absolute_min;
           v4l2_max = capture->v4l2_exposure_absolute_max;
-        break;
+          break;
+      case CV_CAP_PROP_CAM_PRIVACY:
+          v4l2_min = 0;
+          v4l2_max = 1;
+          break;
       }
 
       /* all was OK, so convert to 0.0 - 1.0 range, and return the value */
@@ -2514,11 +2525,6 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
-        return -1;
-        break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
-        fprintf(stderr,
-                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
         return -1;
         break;
     default:
@@ -2690,8 +2696,11 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        capture->control.id = V4L2_CID_PRIVACY;
         break;
     default:
         fprintf(stderr,
@@ -2703,7 +2712,9 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     /* get the min and max values */
     if (-1 == ioctl (capture->deviceHandle,
                       VIDIOC_G_CTRL, &capture->control)) {
-//          perror ("VIDIOC_G_CTRL for getting min/max values");
+      fprintf(stderr,
+              "VIDEOIO ERROR: V4L2: gettings min/max property #%d is not supported\n",
+              property_id);
           return -1;
     }
 
@@ -2734,9 +2745,13 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
         v4l2_min = capture->v4l2_exposure_min;
         v4l2_max = capture->v4l2_exposure_max;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         v4l2_min = capture->v4l2_exposure_absolute_min;
         v4l2_max = capture->v4l2_exposure_absolute_max;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        v4l2_min = 0;
+        v4l2_max = 1;
         break;
     }
 
@@ -2764,8 +2779,11 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        capture->control.id = V4L2_CID_PRIVACY;
         break;
     default:
         fprintf(stderr,
@@ -2816,10 +2834,6 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
-        return -1;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
-        fprintf(stderr,
-                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
         return -1;
     default:
         fprintf(stderr,
@@ -2887,7 +2901,8 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_HUE:
     case CV_CAP_PROP_GAIN:
     case CV_CAP_PROP_EXPOSURE:
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_PRIVACY:
         retval = icvSetControl(capture, property_id, value);
         break;
     default:
