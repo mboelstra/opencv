@@ -81,14 +81,18 @@ StereoCalib(const vector<string>& imagelist, Size boardSize, bool useCalibrated=
 
     for( i = j = 0; i < nimages; i++ )
     {
+        cout << "processing image " << i << endl;
         for( k = 0; k < 2; k++ )
         {
             const string& filename = imagelist[i*2+k];
             Mat img = imread(filename, 0);
-            if(img.empty())
+            if(img.empty()) {
+                cout << "Image not found: " << filename << endl;
                 break;
-            if( imageSize == Size() )
+            }
+            if( imageSize == Size() ) {
                 imageSize = img.size();
+            }
             else if( img.size() != imageSize )
             {
                 cout << "The image " << filename << " has the size different from the first image size. Skipping the pair\n";
@@ -103,6 +107,8 @@ StereoCalib(const vector<string>& imagelist, Size boardSize, bool useCalibrated=
                     timg = img;
                 else
                     resize(img, timg, Size(), scale, scale);
+
+                cout << "finding corners for i " << i << ", k" << k << ", scale " << scale << endl;
                 found = findChessboardCorners(timg, boardSize, corners,
                     CALIB_CB_ADAPTIVE_THRESH | CALIB_CB_NORMALIZE_IMAGE);
                 if( found )
@@ -113,6 +119,8 @@ StereoCalib(const vector<string>& imagelist, Size boardSize, bool useCalibrated=
                         cornersMat *= 1./scale;
                     }
                     break;
+                } else {
+                  cout << "No chessboard corners found" << endl;
                 }
             }
             if( displayCorners )
@@ -212,7 +220,7 @@ StereoCalib(const vector<string>& imagelist, Size boardSize, bool useCalibrated=
     cout << "average reprojection err = " <<  err/npoints << endl;
 
     // save intrinsic parameters
-    FileStorage fs("../data/intrinsics.yml", FileStorage::WRITE);
+    FileStorage fs("intrinsics.yml", FileStorage::WRITE);
     if( fs.isOpened() )
     {
         fs << "M1" << cameraMatrix[0] << "D1" << distCoeffs[0] <<
