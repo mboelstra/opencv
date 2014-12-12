@@ -25,17 +25,65 @@ static void print_help()
            "[--no-display] [-o <disparity_image>] [-p <point_cloud_file>]\n");
 }
 
-static void saveXYZ(const char* filename, const Mat& mat)
+static void saveXYZ(const char* filename, const Mat& mat, const Mat& img)
 {
-    const double max_z = 1.0e4;
+    const double max_z = 5;//1.0e4;
+
+    int pointCount = 0;
+    float minx, maxx, miny, maxy, minz, maxz;
+
+    minx = miny = minz = std::numeric_limits<float>::max();
+    maxx = maxy = maxz = std::numeric_limits<float>::min();
+
+    for(int y = 0; y < mat.rows; y++)
+    {
+        for(int x = 0; x < mat.cols; x++)
+        {
+            Vec3f point = mat.at<Vec3f>(y, x);
+
+            if(fabs(point[2] - max_z) < FLT_EPSILON || fabs(point[2]) > max_z) continue;
+
+            pointCount++;
+
+            minx = std::min(minx, point[0]);
+            maxx = std::max(maxx, point[0]);
+
+            miny = std::min(miny, point[1]);
+            maxy = std::max(maxy, point[1]);
+
+            minz = std::min(minz, point[2]);
+            maxz = std::max(maxz, point[2]);
+        }
+    }
+
+    printf("minx: %f, maxx: %f, miny: %f, maxy: %f, minz: %f, maxz: %f\n",
+           minx, maxx, miny, maxy, minz, maxz);
+
     FILE* fp = fopen(filename, "wt");
+
+    fprintf(fp, "# .PCD v.7 - Point Cloud Data file format\n");
+    fprintf(fp, "VERSION .7\n");
+    fprintf(fp, "FIELDS x y z rgb\n");
+    fprintf(fp, "SIZE 4 4 4 4\n");
+    fprintf(fp, "TYPE F F F U\n");
+    fprintf(fp, "COUNT 1 1 1 1\n");
+    fprintf(fp, "WIDTH %d\n", pointCount);
+    fprintf(fp, "HEIGHT 1\n");
+    fprintf(fp, "VIEWPOINT 0 0 0 1 0 0 0\n");
+    fprintf(fp, "POINTS %d\n", pointCount);
+    fprintf(fp, "DATA ascii\n");
+
     for(int y = 0; y < mat.rows; y++)
     {
         for(int x = 0; x < mat.cols; x++)
         {
             Vec3f point = mat.at<Vec3f>(y, x);
             if(fabs(point[2] - max_z) < FLT_EPSILON || fabs(point[2]) > max_z) continue;
-            fprintf(fp, "%f %f %f\n", point[0], point[1], point[2]);
+
+            unsigned char gray = img.at<unsigned char>(y, x);
+            unsigned int rgb =  ((unsigned int)gray) << 16 | ((unsigned int)gray) << 8 | ((unsigned int)gray);
+
+            fprintf(fp, "%f %f %f %u\n", point[0], point[1], point[2], rgb);
         }
     }
     fclose(fp);
@@ -296,11 +344,13 @@ int main(int argc, char** argv)
 
     if(point_cloud_filename)
     {
-        printf("storing the point cloud...");
-        fflush(stdout);
+        printf("storing the point cloud...\n");
         Mat xyz;
+        t = getTickCount();
         reprojectImageTo3D(disp, xyz, Q, true);
-        saveXYZ(point_cloud_filename, xyz);
+        t = getTickCount() - t;
+        printf("Time elapsed: %fms\n", t*1000/getTickFrequency());
+        saveXYZ(point_cloud_filename, xyz, img1);
         printf("\n");
     }
 
