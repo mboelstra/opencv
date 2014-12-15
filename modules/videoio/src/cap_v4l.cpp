@@ -363,39 +363,6 @@ static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h);
 
 /***********************   Implementations  ***************************************/
 
-static int numCameras = 0;
-static int indexList = 0;
-
-/* Simple test program: Find number of Video Sources available.
-   Start from 0 and go to MAX_CAMERAS while checking for the device with that name.
-   If it fails on the first attempt of /dev/video0, then check if /dev/video is valid.
-   Returns the global numCameras with the correct value (we hope) */
-
-static void icvInitCapture_V4L() {
-   int deviceHandle;
-   int CameraNumber;
-   char deviceName[MAX_DEVICE_DRIVER_NAME];
-
-   CameraNumber = 0;
-   while(CameraNumber < MAX_CAMERAS) {
-      /* Print the CameraNumber at the end of the string with a width of one character */
-      sprintf(deviceName, "/dev/video%1d", CameraNumber);
-      /* Test using an open to see if this new device name really does exists. */
-      deviceHandle = open(deviceName, O_RDONLY);
-      if (deviceHandle != -1) {
-         /* This device does indeed exist - add it to the total so far */
-    // add indexList
-    indexList|=(1 << CameraNumber);
-        numCameras++;
-    }
-    if (deviceHandle != -1)
-      close(deviceHandle);
-      /* Set up to test the next /dev/video source in line */
-      CameraNumber++;
-   } /* End while */
-
-}; /* End icvInitCapture_V4L */
-
 #ifdef HAVE_CAMV4L
 
 static int
@@ -1151,21 +1118,8 @@ static int _capture_V4L (CvCaptureCAM_V4L *capture, char *deviceName)
 
 static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
 {
-   static int autoindex = 0;
-
    char deviceName[MAX_DEVICE_DRIVER_NAME];
 
-   if (!numCameras)
-      icvInitCapture_V4L(); /* Havent called icvInitCapture yet - do it now! */
-   if (!numCameras)
-     return NULL; /* Are there any /dev/video input sources? */
-
-   //search index in indexList
-   if ( (index>-1) && ! ((1 << index) & indexList) )
-   {
-     fprintf( stderr, "VIDEOIO ERROR: V4L: index %d is not correct!\n",index);
-     return NULL; /* Did someone ask for not correct video source number? */
-   }
    /* Allocate memory for this humongus CvCaptureCAM_V4L structure that contains ALL
       the handles for V4L processing */
    CvCaptureCAM_V4L * capture = (CvCaptureCAM_V4L*)cvAlloc(sizeof(CvCaptureCAM_V4L));
@@ -1173,16 +1127,14 @@ static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
       fprintf( stderr, "VIDEOIO ERROR: V4L: Could not allocate memory for capture process.\n");
       return NULL;
    }
+
    /* Select camera, or rather, V4L video source */
+   static int autoindex = 0; // NOT THREAD SAFE!!
    if (index<0) { // Asking for the first device available
-     for (; autoindex<MAX_CAMERAS;autoindex++)
-    if (indexList & (1<<autoindex))
-        break;
-     if (autoindex==MAX_CAMERAS)
-    return NULL;
      index=autoindex;
-     autoindex++;// i can recall icvOpenCAM_V4l with index=-1 for next camera
+     autoindex++;// i can recall icvOpenCAM_V4l with index=-1 for next camera. NOT THREAD SAFE!!
    }
+
    /* Print the CameraNumber at the end of the string with a width of one character */
    sprintf(deviceName, "/dev/video%1d", index);
 
@@ -1214,6 +1166,7 @@ static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
 
 #ifdef HAVE_CAMV4L2
 
+/* Returns value -1 = ERROR, 0 = ERROR but continue, 1 = OK */
 static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
     struct v4l2_buffer buf;
 
@@ -1240,7 +1193,7 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
         default:
             /* display the error and stop processing */
             perror ("VIDIOC_DQBUF");
-            return 1;
+            return -1;
         }
    }
 
@@ -1262,8 +1215,10 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
    return 1;
 }
 
-static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
+/* Return value 1 = OK, 0 = ERROR */
+static int mainloop_v4l2(CvCaptureCAM_V4L* capture) {
     unsigned int count;
+    int r;
 
     count = 1;
 
@@ -1271,7 +1226,6 @@ static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
         for (;;) {
             fd_set fds;
             struct timeval tv;
-            int r;
 
             FD_ZERO (&fds);
             FD_SET (capture->deviceHandle, &fds);
@@ -1296,15 +1250,24 @@ static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
                 break;
             }
 
-            if (read_frame_v4l2 (capture))
+            if ((r = read_frame_v4l2 (capture)))
                 break;
         }
+    }
+
+    if (r == 1) {
+      return 1;
+    } else {
+      return 0;
     }
 }
 
 #endif /* HAVE_CAMV4L2 */
 
+/* Return value 1 = OK, 0 = ERROR */
 static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
+
+   int result = 0;
 
    if (capture->FirstCapture) {
       /* Some general initialization must take place the first time through */
@@ -1389,9 +1352,7 @@ static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
 
    if (V4L2_SUPPORT == 1)
    {
-
-     mainloop_v4l2(capture);
-
+     result = mainloop_v4l2(capture);
    }
 #endif /* HAVE_CAMV4L2 */
 #if defined(HAVE_CAMV4L) && defined(HAVE_CAMV4L2)
@@ -1419,7 +1380,7 @@ static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
    }
 #endif /* HAVE_CAMV4L */
 
-   return(1);
+   return result;
 }
 
 /*
