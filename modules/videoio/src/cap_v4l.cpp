@@ -269,8 +269,6 @@ struct buffer
   size_t  length;
 };
 
-static unsigned int n_buffers = 0;
-
 /* Additional V4L2 pixelformats support for Sonix SN9C10x base webcams */
 #ifndef V4L2_PIX_FMT_SBGGR8
 #define V4L2_PIX_FMT_SBGGR8  v4l2_fourcc('B','A','8','1') /* 8 BGBG.. GRGR.. */
@@ -339,6 +337,8 @@ typedef struct CvCaptureCAM_V4L
    int v4l2_exposure, v4l2_exposure_min, v4l2_exposure_max;
 
    int v4l2_exposure_absolute, v4l2_exposure_absolute_min, v4l2_exposure_absolute_max;
+
+   int width, height;
 
 #endif /* HAVE_CAMV4L2 */
 
@@ -974,7 +974,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
        }
    }
 
-   for (n_buffers = 0; n_buffers < capture->req.count; ++n_buffers)
+   for (unsigned int n_buffers = 0; n_buffers < capture->req.count; ++n_buffers)
    {
        struct v4l2_buffer buf;
 
@@ -1151,8 +1151,7 @@ static int _capture_V4L (CvCaptureCAM_V4L *capture, char *deviceName)
 
 static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
 {
-   static int autoindex;
-   autoindex = 0;
+   static int autoindex = 0;
 
    char deviceName[MAX_DEVICE_DRIVER_NAME];
 
@@ -2860,7 +2859,6 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
 
 static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
                                   int property_id, double value ){
-    static int width = 0, height = 0;
     int retval;
 
     /* initialization */
@@ -2872,17 +2870,17 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
 
     switch (property_id) {
     case CV_CAP_PROP_FRAME_WIDTH:
-        width = cvRound(value);
-        if(width !=0 && height != 0) {
-            retval = icvSetVideoSize( capture, width, height);
-            width = height = 0;
+        capture->width = cvRound(value);
+        if(capture->width !=0 && capture->height != 0) {
+            retval = icvSetVideoSize( capture, capture->width, capture->height);
+            capture->width = capture->height = 0;
         }
         break;
     case CV_CAP_PROP_FRAME_HEIGHT:
-        height = cvRound(value);
-        if(width !=0 && height != 0) {
-            retval = icvSetVideoSize( capture, width, height);
-            width = height = 0;
+        capture->height = cvRound(value);
+        if(capture->width !=0 && capture->height != 0) {
+            retval = icvSetVideoSize( capture, capture->width, capture->height);
+            capture->width = capture->height = 0;
         }
         break;
     case CV_CAP_PROP_FPS:
