@@ -269,8 +269,6 @@ struct buffer
   size_t  length;
 };
 
-static unsigned int n_buffers = 0;
-
 /* Additional V4L2 pixelformats support for Sonix SN9C10x base webcams */
 #ifndef V4L2_PIX_FMT_SBGGR8
 #define V4L2_PIX_FMT_SBGGR8  v4l2_fourcc('B','A','8','1') /* 8 BGBG.. GRGR.. */
@@ -337,7 +335,10 @@ typedef struct CvCaptureCAM_V4L
    int v4l2_hue, v4l2_hue_min, v4l2_hue_max;
    int v4l2_gain, v4l2_gain_min, v4l2_gain_max;
    int v4l2_exposure, v4l2_exposure_min, v4l2_exposure_max;
+
    int v4l2_exposure_absolute, v4l2_exposure_absolute_min, v4l2_exposure_absolute_max;
+
+   int width, height;
 
 #endif /* HAVE_CAMV4L2 */
 
@@ -361,39 +362,6 @@ static int    icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture, int property_id,
 static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h);
 
 /***********************   Implementations  ***************************************/
-
-static int numCameras = 0;
-static int indexList = 0;
-
-/* Simple test program: Find number of Video Sources available.
-   Start from 0 and go to MAX_CAMERAS while checking for the device with that name.
-   If it fails on the first attempt of /dev/video0, then check if /dev/video is valid.
-   Returns the global numCameras with the correct value (we hope) */
-
-static void icvInitCapture_V4L() {
-   int deviceHandle;
-   int CameraNumber;
-   char deviceName[MAX_DEVICE_DRIVER_NAME];
-
-   CameraNumber = 0;
-   while(CameraNumber < MAX_CAMERAS) {
-      /* Print the CameraNumber at the end of the string with a width of one character */
-      sprintf(deviceName, "/dev/video%1d", CameraNumber);
-      /* Test using an open to see if this new device name really does exists. */
-      deviceHandle = open(deviceName, O_RDONLY);
-      if (deviceHandle != -1) {
-         /* This device does indeed exist - add it to the total so far */
-    // add indexList
-    indexList|=(1 << CameraNumber);
-        numCameras++;
-    }
-    if (deviceHandle != -1)
-      close(deviceHandle);
-      /* Set up to test the next /dev/video source in line */
-      CameraNumber++;
-   } /* End while */
-
-}; /* End icvInitCapture_V4L */
 
 #ifdef HAVE_CAMV4L
 
@@ -973,7 +941,7 @@ static int _capture_V4L2 (CvCaptureCAM_V4L *capture, char *deviceName)
        }
    }
 
-   for (n_buffers = 0; n_buffers < capture->req.count; ++n_buffers)
+   for (unsigned int n_buffers = 0; n_buffers < capture->req.count; ++n_buffers)
    {
        struct v4l2_buffer buf;
 
@@ -1150,22 +1118,8 @@ static int _capture_V4L (CvCaptureCAM_V4L *capture, char *deviceName)
 
 static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
 {
-   static int autoindex;
-   autoindex = 0;
-
    char deviceName[MAX_DEVICE_DRIVER_NAME];
 
-   if (!numCameras)
-      icvInitCapture_V4L(); /* Havent called icvInitCapture yet - do it now! */
-   if (!numCameras)
-     return NULL; /* Are there any /dev/video input sources? */
-
-   //search index in indexList
-   if ( (index>-1) && ! ((1 << index) & indexList) )
-   {
-     fprintf( stderr, "VIDEOIO ERROR: V4L: index %d is not correct!\n",index);
-     return NULL; /* Did someone ask for not correct video source number? */
-   }
    /* Allocate memory for this humongus CvCaptureCAM_V4L structure that contains ALL
       the handles for V4L processing */
    CvCaptureCAM_V4L * capture = (CvCaptureCAM_V4L*)cvAlloc(sizeof(CvCaptureCAM_V4L));
@@ -1173,16 +1127,14 @@ static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
       fprintf( stderr, "VIDEOIO ERROR: V4L: Could not allocate memory for capture process.\n");
       return NULL;
    }
+
    /* Select camera, or rather, V4L video source */
+   static int autoindex = 0; // NOT THREAD SAFE!!
    if (index<0) { // Asking for the first device available
-     for (; autoindex<MAX_CAMERAS;autoindex++)
-    if (indexList & (1<<autoindex))
-        break;
-     if (autoindex==MAX_CAMERAS)
-    return NULL;
      index=autoindex;
-     autoindex++;// i can recall icvOpenCAM_V4l with index=-1 for next camera
+     autoindex++;// i can recall icvOpenCAM_V4l with index=-1 for next camera. NOT THREAD SAFE!!
    }
+
    /* Print the CameraNumber at the end of the string with a width of one character */
    sprintf(deviceName, "/dev/video%1d", index);
 
@@ -1214,6 +1166,7 @@ static CvCaptureCAM_V4L * icvCaptureFromCAM_V4L (int index)
 
 #ifdef HAVE_CAMV4L2
 
+/* Returns value -1 = ERROR, 0 = ERROR but continue, 1 = OK */
 static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
     struct v4l2_buffer buf;
 
@@ -1240,7 +1193,7 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
         default:
             /* display the error and stop processing */
             perror ("VIDIOC_DQBUF");
-            return 1;
+            return -1;
         }
    }
 
@@ -1262,8 +1215,10 @@ static int read_frame_v4l2(CvCaptureCAM_V4L* capture) {
    return 1;
 }
 
-static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
+/* Return value 1 = OK, 0 = ERROR */
+static int mainloop_v4l2(CvCaptureCAM_V4L* capture) {
     unsigned int count;
+    int r;
 
     count = 1;
 
@@ -1271,7 +1226,6 @@ static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
         for (;;) {
             fd_set fds;
             struct timeval tv;
-            int r;
 
             FD_ZERO (&fds);
             FD_SET (capture->deviceHandle, &fds);
@@ -1296,15 +1250,24 @@ static void mainloop_v4l2(CvCaptureCAM_V4L* capture) {
                 break;
             }
 
-            if (read_frame_v4l2 (capture))
+            if ((r = read_frame_v4l2 (capture)))
                 break;
         }
+    }
+
+    if (r == 1) {
+      return 1;
+    } else {
+      return 0;
     }
 }
 
 #endif /* HAVE_CAMV4L2 */
 
+/* Return value 1 = OK, 0 = ERROR */
 static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
+
+   int result = 0;
 
    if (capture->FirstCapture) {
       /* Some general initialization must take place the first time through */
@@ -1389,9 +1352,7 @@ static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
 
    if (V4L2_SUPPORT == 1)
    {
-
-     mainloop_v4l2(capture);
-
+     result = mainloop_v4l2(capture);
    }
 #endif /* HAVE_CAMV4L2 */
 #if defined(HAVE_CAMV4L) && defined(HAVE_CAMV4L2)
@@ -1419,7 +1380,7 @@ static int icvGrabFrameCAM_V4L(CvCaptureCAM_V4L* capture) {
    }
 #endif /* HAVE_CAMV4L */
 
-   return(1);
+   return result;
 }
 
 /*
@@ -2390,8 +2351,11 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
       case CV_CAP_PROP_EXPOSURE:
           capture->control.id = V4L2_CID_EXPOSURE;
           break;
-      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+      case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
           capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+          break;
+      case CV_CAP_PROP_CAM_PRIVACY:
+          capture->control.id = V4L2_CID_PRIVACY;
           break;
       default:
         fprintf(stderr,
@@ -2423,8 +2387,11 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
           case CV_CAP_PROP_EXPOSURE:
               fprintf (stderr, "Exposure");
               break;
-          case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+          case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
               fprintf (stderr, "Exposure Absolute");
+              break;
+          case CV_CAP_PROP_CAM_PRIVACY:
+              fprintf (stderr, "Privacy");
               break;
           }
           fprintf (stderr, " is not supported by your device\n");
@@ -2459,10 +2426,14 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
           v4l2_min = capture->v4l2_exposure_min;
           v4l2_max = capture->v4l2_exposure_max;
           break;
-      case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+      case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
           v4l2_min = capture->v4l2_exposure_absolute_min;
           v4l2_max = capture->v4l2_exposure_absolute_max;
-        break;
+          break;
+      case CV_CAP_PROP_CAM_PRIVACY:
+          v4l2_min = 0;
+          v4l2_max = 1;
+          break;
       }
 
       /* all was OK, so convert to 0.0 - 1.0 range, and return the value */
@@ -2514,11 +2485,6 @@ static double icvGetPropertyCAM_V4L (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
-        return -1;
-        break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
-        fprintf(stderr,
-                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
         return -1;
         break;
     default:
@@ -2590,7 +2556,7 @@ static int icvSetVideoSize( CvCaptureCAM_V4L* capture, int w, int h) {
     memset (&setfps, 0, sizeof(struct v4l2_streamparm));
     setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     setfps.parm.capture.timeperframe.numerator = 1;
-    setfps.parm.capture.timeperframe.denominator = 30;
+    setfps.parm.capture.timeperframe.denominator = 60;
     ioctl (capture->deviceHandle, VIDIOC_S_PARM, &setfps);
 
     /* we need to re-initialize some things, like buffers, because the size has
@@ -2690,8 +2656,11 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        capture->control.id = V4L2_CID_PRIVACY;
         break;
     default:
         fprintf(stderr,
@@ -2703,7 +2672,9 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     /* get the min and max values */
     if (-1 == ioctl (capture->deviceHandle,
                       VIDIOC_G_CTRL, &capture->control)) {
-//          perror ("VIDIOC_G_CTRL for getting min/max values");
+      fprintf(stderr,
+              "VIDEOIO ERROR: V4L2: gettings min/max property #%d is not supported\n",
+              property_id);
           return -1;
     }
 
@@ -2734,9 +2705,13 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
         v4l2_min = capture->v4l2_exposure_min;
         v4l2_max = capture->v4l2_exposure_max;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         v4l2_min = capture->v4l2_exposure_absolute_min;
         v4l2_max = capture->v4l2_exposure_absolute_max;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        v4l2_min = 0;
+        v4l2_max = 1;
         break;
     }
 
@@ -2764,8 +2739,11 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_EXPOSURE:
         capture->control.id = V4L2_CID_EXPOSURE;
         break;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
         capture->control.id = V4L2_CID_EXPOSURE_ABSOLUTE;
+        break;
+    case CV_CAP_PROP_CAM_PRIVACY:
+        capture->control.id = V4L2_CID_PRIVACY;
         break;
     default:
         fprintf(stderr,
@@ -2817,10 +2795,6 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: Exposure control in V4L is not supported\n");
         return -1;
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
-        fprintf(stderr,
-                "VIDEOIO ERROR: V4L: Exposure Absolute control in V4L is not supported\n");
-        return -1;
     default:
         fprintf(stderr,
                 "VIDEOIO ERROR: V4L: property #%d is not supported\n",
@@ -2846,7 +2820,6 @@ static int icvSetControl (CvCaptureCAM_V4L* capture,
 
 static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
                                   int property_id, double value ){
-    static int width = 0, height = 0;
     int retval;
 
     /* initialization */
@@ -2858,17 +2831,27 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
 
     switch (property_id) {
     case CV_CAP_PROP_FRAME_WIDTH:
-        width = cvRound(value);
-        if(width !=0 && height != 0) {
-            retval = icvSetVideoSize( capture, width, height);
-            width = height = 0;
+        capture->width = cvRound(value);
+        if(capture->width !=0 && capture->height != 0) {
+            retval = icvSetVideoSize( capture, capture->width, capture->height);
+            capture->width = capture->height = 0;
         }
         break;
     case CV_CAP_PROP_FRAME_HEIGHT:
-        height = cvRound(value);
-        if(width !=0 && height != 0) {
-            retval = icvSetVideoSize( capture, width, height);
-            width = height = 0;
+        capture->height = cvRound(value);
+        if(capture->width !=0 && capture->height != 0) {
+            retval = icvSetVideoSize( capture, capture->width, capture->height);
+            capture->width = capture->height = 0;
+        }
+        break;
+    case CV_CAP_PROP_FPS:
+        {
+            struct v4l2_streamparm setfps;
+            memset (&setfps, 0, sizeof(struct v4l2_streamparm));
+            setfps.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+            setfps.parm.capture.timeperframe.numerator = 1;
+            setfps.parm.capture.timeperframe.denominator = value;
+            ioctl (capture->deviceHandle, VIDIOC_S_PARM, &setfps);
         }
         break;
     case CV_CAP_PROP_BRIGHTNESS:
@@ -2877,7 +2860,8 @@ static int icvSetPropertyCAM_V4L( CvCaptureCAM_V4L* capture,
     case CV_CAP_PROP_HUE:
     case CV_CAP_PROP_GAIN:
     case CV_CAP_PROP_EXPOSURE:
-    case CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE:
+    case CV_CAP_PROP_CAM_PRIVACY:
         retval = icvSetControl(capture, property_id, value);
         break;
     default:

@@ -48,10 +48,6 @@
 extern "C" {
 #endif /* __cplusplus */
 
-/**
-  @addtogroup videoio_c
-  @{
-*/
 
 /****************************************************************************************\
 *                         Working with Video Files and Cameras                           *
@@ -187,7 +183,8 @@ enum
     CV_CAP_PROP_PREVIEW_FORMAT=1026, // readonly, tricky property, returns cpnst char* indeed
 
     // Camera class properties
-    CV_CAP_CAM_PROP_EXPOSURE_ABSOLUTE = 2048,
+    CV_CAP_PROP_CAM_EXPOSURE_ABSOLUTE = 2048,
+    CV_CAP_PROP_CAM_PRIVACY = 2049,
 
     // OpenNI map generators
     CV_CAP_OPENNI_DEPTH_GENERATOR = 1 << 31,
@@ -423,7 +420,6 @@ CVAPI(void) cvReleaseVideoWriter( CvVideoWriter** writer );
 #define cvCreateAVIWriter cvCreateVideoWriter
 #define cvWriteToAVI cvWriteFrame
 
-/** @} videoio_c */
 
 #ifdef __cplusplus
 }
